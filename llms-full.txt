@@ -1,0 +1,494 @@
+# Enrow API - Full Reference for LLMs
+
+Base URL: https://api.enrow.io
+
+## Authentication
+
+All endpoints require an API key passed as a header:
+- Header: `x-api-key: YOUR_API_KEY`
+- The API is available to customers with an active subscription or pay-as-you-go credits.
+
+---
+
+# Email Finder - Find Single
+
+**POST** `https://api.enrow.io/email/find/single`
+
+Find a professional email address from a name and company. Asynchronous — returns a search ID, retrieve results via GET or webhook.
+
+**Credit cost:** 1 credit per email found
+
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| fullname | body | string | yes | The full name of the person |
+| company_domain | body | string | yes* | Company domain (e.g., "dundermifflin.com"). Multiple formats accepted. |
+| company_name | body | string | yes* | Company name (e.g., "Dunder Mifflin"). |
+| custom | body | object | no | Custom params returned as-is in GET response and webhook |
+| settings.webhook | body | string | no | HTTPS URL notified when search completes |
+| settings.country_code | body | string | no | ISO 3166 Alpha-2 (default: "US"). Relevant with company_name only. |
+| settings.retrieve_gender | body | boolean | no | Returns gender (male/female). Default: false. |
+
+*Either company_domain or company_name is required.
+
+## Responses
+
+### 200 Search initiated
+```json
+{
+  "message": "Single search operating",
+  "id": "0cf517bc-16e8-45bc-b967-ab9116b3c804",
+  "credits_used": 1
+}
+```
+
+### 400 Bad Request
+```json
+{"message": "input payload is missing fullname"}
+{"message": "both company_domain and company_name are absent, input payload needs at least one of them"}
+{"message": "Invalid JSON input"}
+```
+
+### 401 Unauthorized
+```json
+{"message": "No apikey found in the x-api-key headers"}
+{"message": "This apikey is not valid"}
+```
+
+### 422 Insufficient Balance
+```json
+{"message": "Insufficient balance"}
+```
+
+---
+
+# Email Finder - Get Single Result
+
+**GET** `https://api.enrow.io/email/find/single?id={id}`
+
+Retrieve the result of a previously launched email search.
+
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| id | query | string | yes | The search ID returned from the POST request |
+
+## Responses
+
+### 200 Search completed
+```json
+{
+  "email": "dwight.schrute@dundermifflin.com",
+  "custom": {"external_id": "do4eIF8jF40x!"},
+  "info": {
+    "company_domain": "dundermifflin.com",
+    "fullname": "Dwight Schrute",
+    "firstname": "Dwight",
+    "lastname": "Schrute"
+  },
+  "qualification": "valid"
+}
+```
+
+qualification: "valid" (email found) or "invalid" (email not found). Binary system — no probabilistic categories.
+
+### 202 Search ongoing
+```json
+{"qualification": "ongoing"}
+```
+
+### 404 Not found
+```json
+{"message": "Bulk search not found"}
+```
+
+---
+
+# Email Finder - Find Bulk
+
+**POST** `https://api.enrow.io/email/find/bulk`
+
+Run multiple email searches in parallel. Up to 5,000 per batch.
+
+**Credit cost:** 1 credit per email found (per item)
+
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| searches | body | array | yes | Array of search objects |
+| searches[].fullname | body | string | yes | The person's full name |
+| searches[].company_domain | body | string | yes* | Company domain |
+| searches[].company_name | body | string | yes* | Company name |
+| searches[].custom | body | string | no | Custom value returned in results |
+| custom | body | object | no | Batch-level custom params |
+| settings.country_code | body | string | no | ISO 3166 Alpha-2 (default: "US") |
+| settings.webhook | body | string | no | HTTPS URL notified when batch completes |
+| settings.retrieve_gender | body | boolean | no | Returns gender. Default: false. |
+
+### 201 Bulk search started
+```json
+{
+  "message": "Bulk search operating",
+  "id": "0cf517bc-16e8-45bc-b967-ab9116b3c804",
+  "credits_used": 3,
+  "estimated_duration": 1
+}
+```
+
+### 400 Bad Request
+```json
+{"message": "Missing payload"}
+{"message": "Missing mandatory property on search n°8 of 50"}
+```
+
+---
+
+# Email Finder - Get Bulk Results
+
+**GET** `https://api.enrow.io/email/find/bulk?id={id}`
+
+Retrieve results of a bulk email search.
+
+### 200 Search completed
+```json
+{
+  "general": {"id": "...", "status": "completed"},
+  "stats": {
+    "finished": 3,
+    "requested": 3,
+    "valid": 2,
+    "credits_cost": {"initial": 3, "refunded": 1, "final": 2}
+  },
+  "results": [
+    {
+      "index": "0",
+      "qualification": "valid",
+      "email": "dwight.schrute@dundermifflin.com",
+      "info": {"domain": "dundermifflin.com", "fullname": "Dwight Schrute", "firstname": "Dwight", "lastname": "Schrute"},
+      "raw_params": {"company_domain": "dundermifflin.com", "fullname": "Dwight Schrute"},
+      "custom": "lead_001"
+    }
+  ]
+}
+```
+
+### 202 Search ongoing
+```json
+{"general": {"id": "...", "status": "ongoing"}, "stats": {"requested": 3, "finished": 2}}
+```
+
+### 404 Not found
+```json
+{"message": "Bulk search not found"}
+```
+
+---
+
+# Email Verifier - Verify Single
+
+**POST** `https://api.enrow.io/email/verify/single`
+
+Verify a single email address. Determinist verification — works on catch-all domains, no debouncer needed.
+
+**Credit cost:** 0.25 credits per check
+
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| email | body | string | yes | Email address to verify |
+| custom | body | object | no | Custom params returned in results |
+| settings.webhook | body | string | no | HTTPS URL notified when verification completes |
+
+### 200 Verification initiated
+```json
+{
+  "message": "Single verification operating",
+  "id": "0cf517bc-16e8-45bc-b967-ab9116b3c804",
+  "credits_used": 0.25,
+  "credits": {"amount": 0.25, "source": "sub", "split": {"fromPaygo": 0, "fromSub": 0.25}}
+}
+```
+
+### 400 Bad Request
+```json
+{"message": "Invalid JSON input"}
+```
+
+---
+
+# Email Verifier - Get Single Verification
+
+**GET** `https://api.enrow.io/email/verify/single?id={id}`
+
+### 200 Verification finished
+```json
+{
+  "email": "pam.beesly@dundermifflin.com",
+  "custom": {"external_id": "do4eIF8jF40x!"},
+  "qualification": "valid"
+}
+```
+
+qualification: "valid" (deliverable) or "invalid" (not deliverable).
+
+### 202 Verification ongoing
+```json
+{"qualification": "ongoing"}
+```
+
+---
+
+# Email Verifier - Verify Bulk
+
+**POST** `https://api.enrow.io/email/verify/bulk`
+
+Verify multiple emails in batch. Up to 5,000 per batch.
+
+**Credit cost:** 0.25 credits per check (per item)
+
+## Parameters
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| emails | body | array of strings | yes | Email addresses to verify |
+| custom | body | object | no | Custom params returned in results |
+| settings.webhook | body | string | no | HTTPS URL notified when batch completes |
+
+### 201 Bulk verification started
+```json
+{
+  "message": "Bulk verification operating",
+  "id": "0cf517bc-16e8-45bc-b967-ab9116b3c804",
+  "credits_used": 3,
+  "estimated_duration": 1
+}
+```
+
+---
+
+# Email Verifier - Get Bulk Verifications
+
+**GET** `https://api.enrow.io/email/verify/bulk?id={id}`
+
+### 200 Verification completed
+```json
+{
+  "general": {"id": "...", "status": "completed"},
+  "results": [
+    {"email": "pam.beesly@dundermifflin.com", "index": "...", "qualification": "valid"},
+    {"email": "angela.martin@dundermifflin.com", "index": "...", "qualification": "valid"}
+  ],
+  "stats": {"credits_cost": 0.5, "requested": 2, "valid": 2}
+}
+```
+
+---
+
+# Phone Finder - Find Single
+
+**POST** `https://api.enrow.io/phone/single`
+
+Find a phone number. Asynchronous. LinkedIn URL recommended.
+
+**Credit cost:** 50 credits per phone found
+
+## Parameters
+
+Option 1 (recommended):
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| linkedin_url | body | string | yes* | LinkedIn profile URL. Takes precedence if both options provided. |
+
+Option 2:
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| first_name | body | string | yes* | First name |
+| last_name | body | string | yes* | Last name |
+| company_domain | body | string | yes* | Company domain |
+| company_name | body | string | yes* | Company name (alternative) |
+
+Additional:
+
+| Name | In | Type | Required | Description |
+|------|----|------|----------|-------------|
+| custom | body | string | no | Custom value returned in results |
+| settings.webhook | body | string | no | HTTPS URL notified when search completes |
+
+### 201 Single search created
+```json
+{
+  "credits_used": 50,
+  "id": "94cbc13b-7d77-4f41-83f0-60106daa7182",
+  "message": "Single search operating",
+  "credits": {"amount": 50, "source": "sub", "split": {"fromPaygo": 0, "fromSub": 50}}
+}
+```
+
+### 400 Bad Request
+```json
+{"message": "Invalid linkedin_url"}
+```
+
+---
+
+# Phone Finder - Get Single Result
+
+**GET** `https://api.enrow.io/phone/single?id={search_id}`
+
+### 200 Number found
+```json
+{
+  "params": {"linkedin_url": "https://www.linkedin.com/in/michael-scott/"},
+  "custom": "#u84hde941Jdx",
+  "number": "+15705551234",
+  "country": "US",
+  "qualification": "found"
+}
+```
+
+qualification: "found", "not_found", or "ongoing"
+
+### 200 Number not found
+Same structure but qualification: "not_found", no number/country fields.
+
+### 202 Search ongoing
+Same structure but qualification: "ongoing"
+
+### 400 Missing ID
+```json
+{"message": "Missing id in the query params"}
+```
+
+---
+
+# Phone Finder - Find Bulk
+
+**POST** `https://api.enrow.io/phone/bulk`
+
+Search for multiple phone numbers. Up to 5,000 per batch.
+
+**Credit cost:** 50 credits per phone found (per item)
+
+### 201 Bulk search created
+```json
+{
+  "credits_used": 3400,
+  "estimated_duration": 5,
+  "id": "e3b61122-d6a6-4ea7-b331-9b734682a76a",
+  "message": "Bulk search operating"
+}
+```
+
+### 400 Bad Request
+```json
+{"message": "At least 1 phone search must be present in the payload"}
+{"message": "Missing payload"}
+```
+
+---
+
+# Phone Finder - Get Bulk Results
+
+**GET** `https://api.enrow.io/phone/bulk?id={batch_id}`
+
+### 200 Search finished
+```json
+{
+  "general": {"id": "...", "status": "completed"},
+  "results": [
+    {"country": "US", "index": 0, "number": "+15705551234", "params": {"linkedin_url": "https://www.linkedin.com/in/michael-scott"}, "qualification": "found"},
+    {"country": "US", "index": 1, "number": "+15705555678", "params": {"linkedin_url": "https://www.linkedin.com/in/dwight-schrute"}, "qualification": "found"}
+  ],
+  "stats": {"credits_cost": 100, "requested": 2, "valid": 2}
+}
+```
+
+### 200 Search ongoing
+```json
+{"general": {"id": "...", "status": "ongoing"}, "stats": {"finished": 0, "requested": 1}}
+```
+
+---
+
+# Account Info
+
+**GET** `https://api.enrow.io/account/info`
+
+Retrieve credit balance and registered webhooks.
+
+### 200 Success
+```json
+{
+  "credits": 36000,
+  "webhooks": ["https://api.mysuperwebsite/api/webhook"]
+}
+```
+
+### 401 Unauthorized
+```json
+{"message": "This apikey is not valid"}
+```
+
+---
+
+# Webhooks
+
+Six event types: single_search_finished, bulk_search_finished, verification_finished, bulk_verification_finished, single_phone_search_finished, bulk_phone_search_finished.
+
+For single searches, the full result is included in the webhook payload. For bulk, only the batch ID and credits cost — use the GET endpoint to retrieve results.
+
+Setup: pass webhook URL in settings.webhook per request, or configure globally at https://app.enrow.io/integrations
+
+---
+
+# Credits
+
+| Endpoint | Cost |
+|----------|------|
+| Email Finder | 1 credit per email found |
+| Email Verifier | 0.25 credits per check |
+| Phone Finder | 50 credits per phone found |
+
+POST responses for Email Verifier and Phone Finder include a `credits` object with: `amount`, `source` (sub or paygo), `split` ({fromPaygo, fromSub}).
+
+Email Finder GET responses include `fullname` in the `info` object alongside `firstname` and `lastname`.
+
+---
+
+# Qualification System
+
+Binary results — no probabilistic categories. Either the result is good or it's not.
+
+- Email Finder: "valid" (found) or "invalid" (not found)
+- Email Verifier: "valid" (deliverable) or "invalid" (not deliverable)
+- Phone Finder: "found" or "not_found"
+- All endpoints: "ongoing" while processing
+
+Enrow verifies catch-all emails deterministically. No debouncer needed.
+
+---
+
+# Error Codes
+
+All errors: `{"message": "..."}`
+
+| Code | Messages |
+|------|----------|
+| 400 | Invalid JSON input, Missing payload, Missing mandatory property, Invalid linkedin_url, Missing id in the query params |
+| 401 | No apikey found in the x-api-key headers, This apikey is not valid |
+| 404 | Bulk search not found |
+| 422 | Insufficient balance |
+| 429 | Rate limit exceeded |
+
+---
+
+# Rate Limits
+
+10 requests/second on all POST endpoints. GET endpoints are not rate limited.
+Increase available on request: api@enrow.io
