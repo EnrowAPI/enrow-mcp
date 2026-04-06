@@ -1,6 +1,6 @@
 # Enrow MCP Server
 
-MCP (Model Context Protocol) server for the [Enrow API](https://enrow.io). Find and verify professional emails, phone numbers, and contacts directly from Claude, Cursor, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for the [Enrow API](https://enrow.io). Find and verify professional emails, phone numbers, and contacts directly from any MCP-compatible AI assistant (Claude Desktop, Cursor, Windsurf, etc.).
 
 ## Tools
 
