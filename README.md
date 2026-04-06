@@ -1,5 +1,9 @@
 # Enrow MCP Server
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![GitHub stars](https://img.shields.io/github/stars/EnrowAPI/enrow-mcp)](https://github.com/EnrowAPI/enrow-mcp)
+[![Last commit](https://img.shields.io/github/last-commit/EnrowAPI/enrow-mcp)](https://github.com/EnrowAPI/enrow-mcp/commits)
+
 MCP (Model Context Protocol) server for the [Enrow API](https://enrow.io). Find and verify professional emails, phone numbers, and contacts directly from any MCP-compatible AI assistant (Claude Desktop, Cursor, Windsurf, etc.).
 
 ## Tools
@@ -88,7 +92,7 @@ Once configured, just ask your AI assistant:
 ## Links
 
 - [Enrow API Documentation](https://docs.enrow.io)
-- [Full Enrow SDK](https://github.com/enrow/enrow-js)
+- [Full Enrow SDK](https://github.com/EnrowAPI/enrow-js)
 - [MCP Protocol](https://modelcontextprotocol.io)
 
 ## License

@@ -28,7 +28,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/enrow/enrow-mcp"
+    "url": "https://github.com/EnrowAPI/enrow-mcp"
   },
   "homepage": "https://enrow.io",
   "engines": { "node": ">=18" },
