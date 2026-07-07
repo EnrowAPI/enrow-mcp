@@ -254,7 +254,7 @@ Verify multiple emails in batch. Up to 5,000 per batch.
 
 | Name | In | Type | Required | Description |
 |------|----|------|----------|-------------|
-| emails | body | array of strings | yes | Email addresses to verify |
+| verifications | body | array of strings | yes | Email addresses to verify |
 | custom | body | object | no | Custom params returned in results |
 | settings.webhook | body | string | no | HTTPS URL notified when batch completes |
 
@@ -308,8 +308,8 @@ Option 2:
 
 | Name | In | Type | Required | Description |
 |------|----|------|----------|-------------|
-| first_name | body | string | yes* | First name |
-| last_name | body | string | yes* | Last name |
+| firstname | body | string | yes* | First name |
+| lastname | body | string | yes* | Last name |
 | company_domain | body | string | yes* | Company domain |
 | company_name | body | string | yes* | Company name (alternative) |
 
@@ -371,7 +371,7 @@ Same structure but qualification: "ongoing"
 
 **POST** `https://api.enrow.io/phone/bulk`
 
-Search for multiple phone numbers. Up to 5,000 per batch.
+Search for multiple phone numbers. Up to 3,000 per batch.
 
 **Credit cost:** 50 credits per phone found (per item)
 

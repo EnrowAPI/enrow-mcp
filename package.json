@@ -1,16 +1,22 @@
 {
   "name": "@enrow/mcp",
-  "version": "1.0.0",
-  "description": "MCP server for the Enrow API — find and verify professional emails, phone numbers, and contacts from any AI assistant",
+  "version": "1.1.0",
+  "description": "MCP server for the Enrow API — find and verify professional emails and phone numbers from any AI assistant",
   "type": "module",
-  "main": "./dist/index.mjs",
+  "main": "./dist/index.js",
   "bin": {
-    "enrow-mcp": "./dist/index.mjs"
+    "enrow-mcp": "./dist/index.js",
+    "enrow-mcp-http": "./dist/http.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --target node18",
+    "build": "tsup src/index.ts src/http.ts src/lambda.ts --format esm --target node18",
+    "build:lambda": "npm run build && rm -rf .lambda-build && mkdir -p .lambda-build && cp -r dist package.json package-lock.json .lambda-build/ && cd .lambda-build && npm ci --omit=dev --ignore-scripts",
     "dev": "tsx src/index.ts",
+    "start:http": "node dist/http.js",
+    "dev:http": "tsx src/http.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -31,15 +37,18 @@
     "url": "https://github.com/EnrowAPI/enrow-mcp"
   },
   "homepage": "https://enrow.io",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@codegenie/serverless-express": "^5.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "tsup": "^8.0.0",
     "tsx": "^4.0.0",
-    "typescript": "^5.3.0",
-    "@types/node": "^20.0.0"
+    "typescript": "^5.3.0"
   }
 }

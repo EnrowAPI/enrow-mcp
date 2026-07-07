@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.lambda-build/
+*.zip
+*.log
+.DS_Store
+.env
+.env.*
+
+# Terraform (keep .terraform.lock.hcl tracked)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Kept OUT of this public repo — live in a separate private repo (infra/ops)
+infra/
+HOSTING.md
+test/
+.github/workflows/contract.yml

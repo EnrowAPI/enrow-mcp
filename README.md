@@ -4,7 +4,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/EnrowAPI/enrow-mcp)](https://github.com/EnrowAPI/enrow-mcp)
 [![Last commit](https://img.shields.io/github/last-commit/EnrowAPI/enrow-mcp)](https://github.com/EnrowAPI/enrow-mcp/commits)
 
-MCP (Model Context Protocol) server for the [Enrow API](https://enrow.io). Find and verify professional emails, phone numbers, and contacts directly from any MCP-compatible AI assistant (Claude Desktop, Cursor, Windsurf, etc.).
+MCP (Model Context Protocol) server for the [Enrow API](https://enrow.io). Find and verify professional emails and phone numbers directly from any MCP-compatible AI assistant (Claude Desktop, Cursor, Windsurf, etc.).
 
 ## Tools
 
@@ -70,6 +70,14 @@ Add to your Cursor MCP settings:
   }
 }
 ```
+
+## Remote / hosted (HTTP)
+
+Besides local `stdio`, the server also ships a remote **Streamable HTTP** transport
+(`enrow-mcp-http`, or `npm run start:http`) for self-hosting it as a shared,
+multi-tenant connector — each request carries the caller's Enrow API key as
+`Authorization: Bearer <key>` (or the `x-enrow-api-key` header), so nothing is
+stored server-side.
 
 ## Usage examples
 
