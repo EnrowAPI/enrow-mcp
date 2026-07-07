@@ -20,7 +20,7 @@ MCP (Model Context Protocol) server for the [Enrow API](https://enrow.io). Find 
 | `get_verifications_bulk_result` | Retrieve bulk verification results |
 | `find_phone` | Find a phone number from LinkedIn or name + company |
 | `get_phone_result` | Retrieve a phone search result |
-| `find_phones_bulk` | Find up to 5,000 phone numbers in one batch |
+| `find_phones_bulk` | Find up to 3,000 phone numbers in one batch |
 | `get_phones_bulk_result` | Retrieve bulk phone results |
 | `get_account_info` | Check credit balance and webhooks |
 
