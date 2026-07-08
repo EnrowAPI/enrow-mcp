@@ -49,7 +49,11 @@ export async function listener(req: IncomingMessage, res: ServerResponse): Promi
 
   // RFC 9728 protected-resource metadata: points OAuth-capable clients at the
   // Enrow Authorization Server. Only served once the AS is live (flag).
-  if (OAUTH_DISCOVERY_ENABLED && req.method === 'GET' && path === RESOURCE_METADATA_PATH) {
+  // Clients probe both the bare path and the resource-suffixed variant
+  // (/.well-known/oauth-protected-resource/mcp) — serve both.
+  const isMetadataPath =
+    path === RESOURCE_METADATA_PATH || path === `${RESOURCE_METADATA_PATH}${MCP_PATH}`;
+  if (OAUTH_DISCOVERY_ENABLED && req.method === 'GET' && isMetadataPath) {
     sendJson(res, 200, {
       resource: MCP_PUBLIC_URL,
       authorization_servers: [OAUTH_ISSUER],
