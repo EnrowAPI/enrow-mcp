@@ -16,6 +16,14 @@ import { createEnrowServer } from './server.js';
 
 const MCP_PATH = process.env.MCP_PATH ?? '/mcp';
 
+// OAuth discovery (RFC 9728). Gated behind a flag so we only advertise OAuth
+// once the Enrow Authorization Server routes are live — advertising a broken
+// AS would make clients attempt OAuth instead of falling back to header keys.
+const OAUTH_DISCOVERY_ENABLED = process.env.OAUTH_DISCOVERY_ENABLED === '1';
+const MCP_PUBLIC_URL = process.env.MCP_PUBLIC_URL ?? 'https://mcp.enrow.io/mcp';
+const OAUTH_ISSUER = process.env.OAUTH_ISSUER ?? 'https://api.enrow.io';
+const RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
+
 function extractApiKey(req: IncomingMessage): string | undefined {
   const auth = req.headers['authorization'];
   if (typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {
@@ -39,6 +47,17 @@ export async function listener(req: IncomingMessage, res: ServerResponse): Promi
     return;
   }
 
+  // RFC 9728 protected-resource metadata: points OAuth-capable clients at the
+  // Enrow Authorization Server. Only served once the AS is live (flag).
+  if (OAUTH_DISCOVERY_ENABLED && req.method === 'GET' && path === RESOURCE_METADATA_PATH) {
+    sendJson(res, 200, {
+      resource: MCP_PUBLIC_URL,
+      authorization_servers: [OAUTH_ISSUER],
+      bearer_methods_supported: ['header'],
+    });
+    return;
+  }
+
   if (path !== MCP_PATH) {
     sendJson(res, 404, { jsonrpc: '2.0', error: { code: -32601, message: 'Not found' }, id: null });
     return;
@@ -46,6 +65,15 @@ export async function listener(req: IncomingMessage, res: ServerResponse): Promi
 
   const apiKey = extractApiKey(req);
   if (!apiKey) {
+    if (OAUTH_DISCOVERY_ENABLED) {
+      // RFC 9728 §5.1: tell the client where the resource metadata lives so it
+      // can run the OAuth flow. Derive the metadata URL from the public URL.
+      const origin = new URL(MCP_PUBLIC_URL).origin;
+      res.setHeader(
+        'WWW-Authenticate',
+        `Bearer resource_metadata="${origin}${RESOURCE_METADATA_PATH}"`,
+      );
+    }
     sendJson(res, 401, {
       jsonrpc: '2.0',
       error: { code: -32001, message: 'Missing Enrow API key. Pass it as "Authorization: Bearer <key>" or the "x-enrow-api-key" header.' },
