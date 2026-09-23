@@ -24,6 +24,11 @@ const MCP_PUBLIC_URL = process.env.MCP_PUBLIC_URL ?? 'https://mcp.enrow.io/mcp';
 const OAUTH_ISSUER = process.env.OAUTH_ISSUER ?? 'https://api.enrow.io';
 const RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
+// OpenAI plugin-directory domain verification: the submission portal issues a
+// token that must be served verbatim (plain text) at this path. Unset → 404.
+const OPENAI_CHALLENGE_PATH = '/.well-known/openai-apps-challenge';
+const OPENAI_APPS_CHALLENGE = process.env.OPENAI_APPS_CHALLENGE ?? '';
+
 function extractApiKey(req: IncomingMessage): string | undefined {
   const auth = req.headers['authorization'];
   if (typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {
@@ -59,6 +64,12 @@ export async function listener(req: IncomingMessage, res: ServerResponse): Promi
       authorization_servers: [OAUTH_ISSUER],
       bearer_methods_supported: ['header'],
     });
+    return;
+  }
+
+  if (OPENAI_APPS_CHALLENGE && req.method === 'GET' && path === OPENAI_CHALLENGE_PATH) {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end(OPENAI_APPS_CHALLENGE);
     return;
   }
 
