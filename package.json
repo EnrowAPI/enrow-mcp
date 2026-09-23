@@ -1,6 +1,6 @@
 {
   "name": "@enrow/mcp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "MCP server for the Enrow API — find and verify professional emails and phone numbers from any AI assistant",
   "type": "module",
   "main": "./dist/index.js",

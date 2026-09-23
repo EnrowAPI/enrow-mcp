@@ -57,26 +57,27 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   const server = new McpServer({
     name: 'enrow',
-    version: '1.1.0',
+    version: '1.2.0',
   });
 
   // Annotation presets. `find_*`/`verify_*` create an async job and spend
   // credits, so they are not read-only; `get_*` retrievals are read-only.
+  // All three hints are explicit on every tool: the OpenAI submission portal
+  // rejects tools with a missing destructiveHint. `get_*` only read results
+  // stored in the caller's own Enrow account, hence closed-world.
   const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: true } as const;
-  const READ = { readOnlyHint: true, openWorldHint: true } as const;
+  const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
 
   // ── Email Finder ──
 
   server.tool(
     'find_email',
-    'Find a professional email address from a name and a company domain or name. At least one of company_domain or company_name is required. Asynchronous: returns a search id, then poll get_email_result.',
+    'Find the work email address of one specific, named person at a specific company. Use only when the user explicitly asks for the work email of a named person and gives the company domain or name. Asynchronous: returns a search id, then call get_email_result with it.',
     {
-      fullname: z.string().describe('Full name of the person (e.g. "Tim Cook")'),
-      company_domain: z.string().optional().describe('Company domain (e.g. "apple.com")'),
-      company_name: z.string().optional().describe('Company name (e.g. "Apple Inc.")'),
-      country_code: z.string().optional().describe('ISO 3166 Alpha-2 country code (default "US", used with company_name)'),
-      retrieve_gender: z.boolean().optional().describe('Return gender information (male/female)'),
-      retrieve_company_info: z.boolean().optional().describe('Enrich the result with company info'),
+      fullname: z.string().min(1).describe('Full name of the person to look up (e.g. "Tim Cook")'),
+      company_domain: z.string().optional().describe('Website domain of the company the person works at (e.g. "apple.com"). Preferred over company_name.'),
+      company_name: z.string().optional().describe('Name of the company the person works at (e.g. "Apple Inc."). Used only when company_domain is not given.'),
+      company_country: z.string().length(2).optional().describe('Two-letter ISO 3166-1 country code of the company (e.g. "FR"), only to disambiguate company_name when company_domain is not given. Not the location of the user.'),
     },
     { title: 'Find email', ...WRITE },
     async (params) => {
@@ -86,18 +87,14 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
       const body: Record<string, unknown> = { fullname: params.fullname };
       if (params.company_domain) body.company_domain = params.company_domain;
       if (params.company_name) body.company_name = params.company_name;
-      const settings: Record<string, unknown> = {};
-      if (params.country_code) settings.country_code = params.country_code;
-      if (params.retrieve_gender) settings.retrieve_gender = params.retrieve_gender;
-      if (params.retrieve_company_info) settings.retrieve_company_info = params.retrieve_company_info;
-      if (Object.keys(settings).length) body.settings = settings;
+      if (params.company_country) body.settings = { country_code: params.company_country };
       return request('POST', '/email/find/single', body);
     }
   );
 
   server.tool(
     'get_email_result',
-    'Retrieve the result of a previously launched email search',
+    'Retrieve the status and result of an email search started with find_email, by its search id.',
     {
       id: z.string().describe('Search ID returned from find_email'),
     },
@@ -107,32 +104,30 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   server.tool(
     'find_emails_bulk',
-    'Find multiple email addresses in bulk (up to 5,000 per batch). Asynchronous: returns a batch id, then poll get_emails_bulk_result.',
+    'Find the work email addresses of a list of specific, named people (up to 5,000) in one batch. Use only when the user explicitly provides such a list with a company for each person. Asynchronous: returns a batch id, then call get_emails_bulk_result with it.',
     {
       searches: z.array(z.object({
-        fullname: z.string(),
-        company_domain: z.string().optional(),
-        company_name: z.string().optional(),
-      })).describe('Array of search objects'),
-      country_code: z.string().optional(),
-      retrieve_gender: z.boolean().optional(),
-      retrieve_company_info: z.boolean().optional().describe('Enrich results with company info'),
+        fullname: z.string().min(1).describe('Full name of the person'),
+        company_domain: z.string().optional().describe('Website domain of the company of the person (preferred)'),
+        company_name: z.string().optional().describe('Name of the company of the person, when the domain is unknown'),
+      })).min(1).max(5000).describe('One entry per person to look up; each needs company_domain or company_name'),
+      company_country: z.string().length(2).optional().describe('Two-letter ISO 3166-1 country code applied to entries that only have company_name. Not the location of the user.'),
     },
     { title: 'Find emails (bulk)', ...WRITE },
     async (params) => {
+      const bad = params.searches.findIndex((s) => !s.company_domain && !s.company_name);
+      if (bad !== -1) {
+        return { content: [{ type: 'text' as const, text: `Error: searches[${bad}] needs company_domain or company_name.` }], isError: true };
+      }
       const body: Record<string, unknown> = { searches: params.searches };
-      const settings: Record<string, unknown> = {};
-      if (params.country_code) settings.country_code = params.country_code;
-      if (params.retrieve_gender) settings.retrieve_gender = params.retrieve_gender;
-      if (params.retrieve_company_info) settings.retrieve_company_info = params.retrieve_company_info;
-      if (Object.keys(settings).length) body.settings = settings;
+      if (params.company_country) body.settings = { country_code: params.company_country };
       return request('POST', '/email/find/bulk', body);
     }
   );
 
   server.tool(
     'get_emails_bulk_result',
-    'Retrieve results of a bulk email search',
+    'Retrieve the status and results of a bulk email search started with find_emails_bulk, by its batch id.',
     {
       id: z.string().describe('Batch ID returned from find_emails_bulk'),
     },
@@ -144,9 +139,9 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   server.tool(
     'verify_email',
-    'Verify if an email address is deliverable. Works on catch-all domains. Asynchronous: returns a verification id, then poll get_verification_result.',
+    'Check whether one specific email address is deliverable (exists and accepts mail), including on catch-all domains. Use only when the user explicitly asks to verify or validate a given address; not for questions about the mailbox or email setup of the user. Asynchronous: returns a verification id, then call get_verification_result with it.',
     {
-      email: z.string().describe('Email address to verify'),
+      email: z.string().email().describe('The email address to verify'),
     },
     { title: 'Verify email', ...WRITE },
     async (params) => request('POST', '/email/verify/single', { email: params.email })
@@ -154,7 +149,7 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   server.tool(
     'get_verification_result',
-    'Retrieve the result of a previously launched email verification',
+    'Retrieve the status and result of an email verification started with verify_email, by its verification id.',
     {
       id: z.string().describe('Verification ID returned from verify_email'),
     },
@@ -164,9 +159,9 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   server.tool(
     'verify_emails_bulk',
-    'Verify multiple email addresses in bulk (up to 5,000 per batch). Asynchronous: returns a batch id, then poll get_verifications_bulk_result.',
+    'Check the deliverability of a list of email addresses (up to 5,000) in one batch. Use only when the user explicitly provides a list of addresses to verify. Asynchronous: returns a batch id, then call get_verifications_bulk_result with it.',
     {
-      emails: z.array(z.string()).describe('Array of email addresses to verify'),
+      emails: z.array(z.string().email()).min(1).max(5000).describe('The email addresses to verify'),
     },
     { title: 'Verify emails (bulk)', ...WRITE },
     // The API reads the array under the `verifications` key (not `emails`).
@@ -175,7 +170,7 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   server.tool(
     'get_verifications_bulk_result',
-    'Retrieve results of a bulk email verification',
+    'Retrieve the status and results of a bulk email verification started with verify_emails_bulk, by its batch id.',
     {
       id: z.string().describe('Batch ID returned from verify_emails_bulk'),
     },
@@ -187,16 +182,19 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   server.tool(
     'find_phone',
-    'Find a mobile phone number from a LinkedIn URL (recommended) or first name + last name + company. Asynchronous: returns a search id, then poll get_phone_result.',
+    'Find the professional mobile phone number of one specific, named person. Use only when the user explicitly asks for the phone number of a named person and identifies them by a LinkedIn profile URL, or by first name + last name + company. Not for general or customer-service numbers. Asynchronous: returns a search id, then call get_phone_result with it.',
     {
-      linkedin_url: z.string().optional().describe('LinkedIn profile URL (recommended; takes precedence)'),
-      first_name: z.string().optional().describe('First name'),
-      last_name: z.string().optional().describe('Last name'),
-      company_domain: z.string().optional().describe('Company domain'),
-      company_name: z.string().optional().describe('Company name'),
+      linkedin_url: z.string().optional().describe('LinkedIn profile URL of the person (preferred; when given, the other fields are not needed)'),
+      first_name: z.string().optional().describe('First name of the person (with last_name and a company, when there is no LinkedIn URL)'),
+      last_name: z.string().optional().describe('Last name of the person'),
+      company_domain: z.string().optional().describe('Website domain of the company of the person (preferred over company_name)'),
+      company_name: z.string().optional().describe('Name of the company of the person, when the domain is unknown'),
     },
     { title: 'Find phone', ...WRITE },
     async (params) => {
+      if (!params.linkedin_url && !(params.first_name && params.last_name && (params.company_domain || params.company_name))) {
+        return { content: [{ type: 'text' as const, text: 'Error: provide linkedin_url, or first_name + last_name + (company_domain or company_name).' }], isError: true };
+      }
       const body: Record<string, unknown> = {};
       if (params.linkedin_url) body.linkedin_url = params.linkedin_url;
       // API expects firstname/lastname (no underscore).
@@ -210,7 +208,7 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   server.tool(
     'get_phone_result',
-    'Retrieve the result of a previously launched phone search',
+    'Retrieve the status and result of a phone search started with find_phone, by its search id.',
     {
       id: z.string().describe('Search ID returned from find_phone'),
     },
@@ -220,18 +218,22 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   server.tool(
     'find_phones_bulk',
-    'Find multiple phone numbers in bulk (up to 3,000 per batch). Asynchronous: returns a batch id, then poll get_phones_bulk_result.',
+    'Find the professional mobile phone numbers of a list of specific, named people (up to 3,000) in one batch. Use only when the user explicitly provides such a list, each person identified by a LinkedIn URL or by first name + last name + company. Asynchronous: returns a batch id, then call get_phones_bulk_result with it.',
     {
       searches: z.array(z.object({
-        linkedin_url: z.string().optional(),
-        first_name: z.string().optional(),
-        last_name: z.string().optional(),
-        company_domain: z.string().optional(),
-        company_name: z.string().optional(),
-      })).describe('Array of search objects (max 3,000)'),
+        linkedin_url: z.string().optional().describe('LinkedIn profile URL of the person (preferred)'),
+        first_name: z.string().optional().describe('First name (with last_name and a company, when there is no LinkedIn URL)'),
+        last_name: z.string().optional().describe('Last name'),
+        company_domain: z.string().optional().describe('Website domain of the company of the person'),
+        company_name: z.string().optional().describe('Name of the company of the person, when the domain is unknown'),
+      })).min(1).max(3000).describe('One entry per person to look up'),
     },
     { title: 'Find phones (bulk)', ...WRITE },
     async (params) => {
+      const bad = params.searches.findIndex((s) => !s.linkedin_url && !(s.first_name && s.last_name && (s.company_domain || s.company_name)));
+      if (bad !== -1) {
+        return { content: [{ type: 'text' as const, text: `Error: searches[${bad}] needs linkedin_url, or first_name + last_name + (company_domain or company_name).` }], isError: true };
+      }
       // Map the ergonomic first_name/last_name to the API's firstname/lastname.
       const searches = params.searches.map((s) => {
         const out: Record<string, unknown> = {};
@@ -248,7 +250,7 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   server.tool(
     'get_phones_bulk_result',
-    'Retrieve results of a bulk phone search',
+    'Retrieve the status and results of a bulk phone search started with find_phones_bulk, by its batch id.',
     {
       id: z.string().describe('Batch ID returned from find_phones_bulk'),
     },
@@ -260,7 +262,7 @@ export function createEnrowServer(getApiKey: () => string): McpServer {
 
   server.tool(
     'get_account_info',
-    'Get your Enrow account info (credit balance and registered webhooks)',
+    'Get the remaining credit balance and the registered webhook URLs of the connected Enrow account. Use only when the user asks about their Enrow credits or webhooks.',
     {},
     { title: 'Get account info', ...READ },
     async () => request('GET', '/account/info')
