@@ -116,7 +116,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
     'get_email_result',
     'Retrieve the status and result of an email search started with find_email, by its search id.',
     {
-      id: z.string().describe('Search ID returned from find_email'),
+      id: z.string().uuid().describe('Search ID returned from find_email'),
     },
     { title: 'Get email result', ...READ },
     async (params) => request('GET', `/email/find/single?id=${encodeURIComponent(params.id)}`)
@@ -149,7 +149,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
     'get_emails_bulk_result',
     'Retrieve the status and results of a bulk email search started with find_emails_bulk, by its batch id.',
     {
-      id: z.string().describe('Batch ID returned from find_emails_bulk'),
+      id: z.string().uuid().describe('Batch ID returned from find_emails_bulk'),
     },
     { title: 'Get bulk email results', ...READ },
     async (params) => request('GET', `/email/find/bulk?id=${encodeURIComponent(params.id)}`)
@@ -171,7 +171,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
     'get_verification_result',
     'Retrieve the status and result of an email verification started with verify_email, by its verification id.',
     {
-      id: z.string().describe('Verification ID returned from verify_email'),
+      id: z.string().uuid().describe('Verification ID returned from verify_email'),
     },
     { title: 'Get verification result', ...READ },
     async (params) => request('GET', `/email/verify/single?id=${encodeURIComponent(params.id)}`)
@@ -192,7 +192,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
     'get_verifications_bulk_result',
     'Retrieve the status and results of a bulk email verification started with verify_emails_bulk, by its batch id.',
     {
-      id: z.string().describe('Batch ID returned from verify_emails_bulk'),
+      id: z.string().uuid().describe('Batch ID returned from verify_emails_bulk'),
     },
     { title: 'Get bulk verification results', ...READ },
     async (params) => request('GET', `/email/verify/bulk?id=${encodeURIComponent(params.id)}`)
@@ -230,7 +230,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
     'get_phone_result',
     'Retrieve the status and result of a phone search started with find_phone, by its search id.',
     {
-      id: z.string().describe('Search ID returned from find_phone'),
+      id: z.string().uuid().describe('Search ID returned from find_phone'),
     },
     { title: 'Get phone result', ...READ },
     async (params) => request('GET', `/phone/single?id=${encodeURIComponent(params.id)}`)
@@ -272,7 +272,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
     'get_phones_bulk_result',
     'Retrieve the status and results of a bulk phone search started with find_phones_bulk, by its batch id.',
     {
-      id: z.string().describe('Batch ID returned from find_phones_bulk'),
+      id: z.string().uuid().describe('Batch ID returned from find_phones_bulk'),
     },
     { title: 'Get bulk phone results', ...READ },
     async (params) => request('GET', `/phone/bulk?id=${encodeURIComponent(params.id)}`)

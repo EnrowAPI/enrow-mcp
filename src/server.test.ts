@@ -159,6 +159,18 @@ test('the timestamp is taken after the secret is resolved', async () => {
   assert.equal(sent[0].headers['x-enrow-mcp-proof'], 'v1.1790000061.c81b6e14fe7c0d0261208a7873bc7ee58c77e3452b3a9be657cb1a9c8e4bab8e');
 });
 
+test('the six read tools refuse an id that is not a UUID, before any request', async () => {
+  const client = await connect(async () => SECRET);
+  const tools = ['get_email_result', 'get_emails_bulk_result', 'get_verification_result', 'get_verifications_bulk_result', 'get_phone_result', 'get_phones_bulk_result'];
+  for (const name of tools) {
+    for (const id of ['a/b c=d&e', "o'neil", '', ` ${ID}`, `${ID}\n`, ID.replaceAll('-', '')]) {
+      const result = await client.callTool({ name, arguments: { id } }).catch((err: unknown) => ({ isError: true, thrown: String(err) }));
+      assert.equal(result.isError, true, `${name} ${JSON.stringify(id)}`);
+    }
+  }
+  assert.equal(sent.length, 0);
+});
+
 test('the six read tools send the id as given', async () => {
   const client = await connect(async () => SECRET);
   const routes = {
