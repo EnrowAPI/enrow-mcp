@@ -12,6 +12,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { ChannelSecretProvider } from './channel-proof.js';
 import { createEnrowServer } from './server.js';
 
 const MCP_PATH = process.env.MCP_PATH ?? '/mcp';
@@ -43,7 +44,11 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.end(JSON.stringify(payload));
 }
 
-export async function listener(req: IncomingMessage, res: ServerResponse): Promise<void> {
+export async function listener(
+  req: IncomingMessage,
+  res: ServerResponse,
+  getChannelSecret?: ChannelSecretProvider,
+): Promise<void> {
   const path = (req.url ?? '').split('?')[0];
 
   // Health check for load balancers / uptime probes.
@@ -113,7 +118,7 @@ export async function listener(req: IncomingMessage, res: ServerResponse): Promi
   }
 
   // Stateless: a fresh server + transport per request.
-  const server = createEnrowServer(() => apiKey);
+  const server = createEnrowServer(() => apiKey, getChannelSecret);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

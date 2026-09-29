@@ -7,6 +7,11 @@
  */
 
 import serverlessExpress from '@codegenie/serverless-express';
+import { createChannelSecretProvider } from './channel-secret.js';
 import { listener } from './http-handler.js';
 
-export const handler = serverlessExpress({ app: listener });
+// Signs upstream requests when a channel secret is configured.
+const getChannelSecret = createChannelSecretProvider(process.env.CHANNEL_SECRET_PARAMETER);
+await getChannelSecret();
+
+export const handler = serverlessExpress({ app: (req, res) => listener(req, res, getChannelSecret) });

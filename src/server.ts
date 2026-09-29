@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { CHANNEL_PROOF_HEADER, computeChannelProof, type ChannelSecretProvider } from './channel-proof.js';
 
 const BASE_URL = 'https://api.enrow.io';
 
@@ -9,16 +10,35 @@ const BASE_URL = 'https://api.enrow.io';
  * local stdio transport (key from the ENROW_API_KEY env var) and the remote
  * HTTP transport (key from a per-request header — multi-tenant hosting).
  */
-export function createEnrowServer(getApiKey: () => string): McpServer {
+export function createEnrowServer(getApiKey: () => string, getChannelSecret?: ChannelSecretProvider): McpServer {
   async function request(method: string, path: string, body?: unknown) {
     let res: Response;
     try {
-      res = await fetch(`${BASE_URL}${path}`, {
+      const url = new URL(`${BASE_URL}${path}`);
+      const headers: Record<string, string> = {
+        'x-api-key': getApiKey(),
+        'Content-Type': 'application/json',
+      };
+      // Signs upstream requests when a channel secret is configured. The path
+      // and the query are read from the URL that is sent, not from `path`, and
+      // the credential as fetch sends it, without surrounding whitespace.
+      // Signing never blocks a call: on any failure the request goes unsigned.
+      try {
+        const secret = await getChannelSecret?.();
+        if (secret) {
+          const credential = new Headers(headers).get('x-api-key') ?? headers['x-api-key'];
+          headers[CHANNEL_PROOF_HEADER] = computeChannelProof(
+            secret,
+            { credential, method, path: url.pathname, query: url.search.slice(1) },
+            Math.floor(Date.now() / 1000),
+          );
+        }
+      } catch {
+        delete headers[CHANNEL_PROOF_HEADER];
+      }
+      res = await fetch(url, {
         method,
-        headers: {
-          'x-api-key': getApiKey(),
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: body ? JSON.stringify(body) : undefined,
       });
     } catch (err) {
