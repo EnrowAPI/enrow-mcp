@@ -1,18 +1,42 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { RequestId } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { CHANNEL_PROOF_HEADER, computeChannelProof, type ChannelSecretProvider } from './channel-proof.js';
 
 const BASE_URL = 'https://api.enrow.io';
+
+// The tokens that the Enrow OAuth server issues carry this prefix; an API key
+// never does. The Enrow API routes on it too.
+const PLUGIN_TOKEN_PREFIX = 'enrow_mcp_';
 
 /**
  * Build an Enrow MCP server instance. The Enrow API key is resolved lazily
  * per request via `getApiKey`, so the same tool definitions work for both the
  * local stdio transport (key from the ENROW_API_KEY env var) and the remote
  * HTTP transport (key from a per-request header — multi-tenant hosting).
+ *
+ * `onCredentialRefused` is called, with the text of the tool error and the id
+ * of the JSON-RPC request of the tool call, when the Enrow API refuses a
+ * plugin token itself: a 401 whose `reason` is `credential_refused` (token
+ * invalid, revoked, evicted or expired; account gone or pending deletion).
+ * The HTTP transport turns it into an HTTP 401 so the client signs in again;
+ * stdio passes none and keeps the tool error. Every other refusal stays a
+ * tool error: any answer to an API key (its 401 can also be the phone
+ * feature), a refused channel proof (`channel_refused`: the token may be fine,
+ * a new sign-in would not help), a 403, a 5xx.
  */
-export function createEnrowServer(getApiKey: () => string, getChannelSecret?: ChannelSecretProvider): McpServer {
-  async function request(method: string, path: string, body?: unknown) {
+export function createEnrowServer(
+  getApiKey: () => string,
+  getChannelSecret?: ChannelSecretProvider,
+  onCredentialRefused?: (message: string, requestId: RequestId) => void,
+): McpServer {
+  // `extra` is what the SDK passes to a tool callback: it names the JSON-RPC
+  // request that the call answers.
+  async function request(extra: { requestId: RequestId }, method: string, path: string, body?: unknown) {
     let res: Response;
+    // The credential as fetch sends it, without surrounding whitespace: what
+    // a proof signs and what the Enrow API reads.
+    let credential = '';
     try {
       const url = new URL(`${BASE_URL}${path}`);
       const headers: Record<string, string> = {
@@ -20,13 +44,12 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
         'Content-Type': 'application/json',
       };
       // Signs upstream requests when a channel secret is configured. The path
-      // and the query are read from the URL that is sent, not from `path`, and
-      // the credential as fetch sends it, without surrounding whitespace.
+      // and the query are read from the URL that is sent, not from `path`.
       // Signing never blocks a call: on any failure the request goes unsigned.
       try {
+        credential = new Headers(headers).get('x-api-key') ?? headers['x-api-key'];
         const secret = await getChannelSecret?.();
         if (secret) {
-          const credential = new Headers(headers).get('x-api-key') ?? headers['x-api-key'];
           headers[CHANNEL_PROOF_HEADER] = computeChannelProof(
             secret,
             { credential, method, path: url.pathname, query: url.search.slice(1) },
@@ -61,7 +84,11 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
         (data && typeof data === 'object' && (data.message ?? data.reason)) ||
         raw ||
         res.statusText;
-      return { content: [{ type: 'text' as const, text: `Error ${res.status}: ${detail}` }], isError: true };
+      const text = `Error ${res.status}: ${detail}`;
+      if (res.status === 401 && credential.startsWith(PLUGIN_TOKEN_PREFIX) && data?.reason === 'credential_refused') {
+        onCredentialRefused?.(text, extra.requestId);
+      }
+      return { content: [{ type: 'text' as const, text }], isError: true };
     }
 
     // 202 = the async job is still running. The caller must poll the matching
@@ -100,7 +127,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       company_country: z.string().length(2).optional().describe('Two-letter ISO 3166-1 country code of the company (e.g. "FR"), only to disambiguate company_name when company_domain is not given. Not the location of the user.'),
     },
     { title: 'Find email', ...WRITE },
-    async (params) => {
+    async (params, extra) => {
       if (!params.company_domain && !params.company_name) {
         return { content: [{ type: 'text' as const, text: 'Error: provide at least one of company_domain or company_name.' }], isError: true };
       }
@@ -108,7 +135,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       if (params.company_domain) body.company_domain = params.company_domain;
       if (params.company_name) body.company_name = params.company_name;
       if (params.company_country) body.settings = { country_code: params.company_country };
-      return request('POST', '/email/find/single', body);
+      return request(extra, 'POST', '/email/find/single', body);
     }
   );
 
@@ -119,7 +146,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       id: z.string().uuid().describe('Search ID returned from find_email'),
     },
     { title: 'Get email result', ...READ },
-    async (params) => request('GET', `/email/find/single?id=${encodeURIComponent(params.id)}`)
+    async (params, extra) => request(extra, 'GET', `/email/find/single?id=${encodeURIComponent(params.id)}`)
   );
 
   server.tool(
@@ -134,14 +161,14 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       company_country: z.string().length(2).optional().describe('Two-letter ISO 3166-1 country code applied to entries that only have company_name. Not the location of the user.'),
     },
     { title: 'Find emails (bulk)', ...WRITE },
-    async (params) => {
+    async (params, extra) => {
       const bad = params.searches.findIndex((s) => !s.company_domain && !s.company_name);
       if (bad !== -1) {
         return { content: [{ type: 'text' as const, text: `Error: searches[${bad}] needs company_domain or company_name.` }], isError: true };
       }
       const body: Record<string, unknown> = { searches: params.searches };
       if (params.company_country) body.settings = { country_code: params.company_country };
-      return request('POST', '/email/find/bulk', body);
+      return request(extra, 'POST', '/email/find/bulk', body);
     }
   );
 
@@ -152,7 +179,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       id: z.string().uuid().describe('Batch ID returned from find_emails_bulk'),
     },
     { title: 'Get bulk email results', ...READ },
-    async (params) => request('GET', `/email/find/bulk?id=${encodeURIComponent(params.id)}`)
+    async (params, extra) => request(extra, 'GET', `/email/find/bulk?id=${encodeURIComponent(params.id)}`)
   );
 
   // ── Email Verifier ──
@@ -164,7 +191,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       email: z.string().email().describe('The email address to verify'),
     },
     { title: 'Verify email', ...WRITE },
-    async (params) => request('POST', '/email/verify/single', { email: params.email })
+    async (params, extra) => request(extra, 'POST', '/email/verify/single', { email: params.email })
   );
 
   server.tool(
@@ -174,7 +201,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       id: z.string().uuid().describe('Verification ID returned from verify_email'),
     },
     { title: 'Get verification result', ...READ },
-    async (params) => request('GET', `/email/verify/single?id=${encodeURIComponent(params.id)}`)
+    async (params, extra) => request(extra, 'GET', `/email/verify/single?id=${encodeURIComponent(params.id)}`)
   );
 
   server.tool(
@@ -185,7 +212,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
     },
     { title: 'Verify emails (bulk)', ...WRITE },
     // The API reads the array under the `verifications` key (not `emails`).
-    async (params) => request('POST', '/email/verify/bulk', { verifications: params.emails })
+    async (params, extra) => request(extra, 'POST', '/email/verify/bulk', { verifications: params.emails })
   );
 
   server.tool(
@@ -195,7 +222,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       id: z.string().uuid().describe('Batch ID returned from verify_emails_bulk'),
     },
     { title: 'Get bulk verification results', ...READ },
-    async (params) => request('GET', `/email/verify/bulk?id=${encodeURIComponent(params.id)}`)
+    async (params, extra) => request(extra, 'GET', `/email/verify/bulk?id=${encodeURIComponent(params.id)}`)
   );
 
   // ── Phone Finder ──
@@ -211,7 +238,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       company_name: z.string().optional().describe('Name of the company of the person, when the domain is unknown'),
     },
     { title: 'Find phone', ...WRITE },
-    async (params) => {
+    async (params, extra) => {
       if (!params.linkedin_url && !(params.first_name && params.last_name && (params.company_domain || params.company_name))) {
         return { content: [{ type: 'text' as const, text: 'Error: provide linkedin_url, or first_name + last_name + (company_domain or company_name).' }], isError: true };
       }
@@ -222,7 +249,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       if (params.last_name) body.lastname = params.last_name;
       if (params.company_domain) body.company_domain = params.company_domain;
       if (params.company_name) body.company_name = params.company_name;
-      return request('POST', '/phone/single', body);
+      return request(extra, 'POST', '/phone/single', body);
     }
   );
 
@@ -233,7 +260,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       id: z.string().uuid().describe('Search ID returned from find_phone'),
     },
     { title: 'Get phone result', ...READ },
-    async (params) => request('GET', `/phone/single?id=${encodeURIComponent(params.id)}`)
+    async (params, extra) => request(extra, 'GET', `/phone/single?id=${encodeURIComponent(params.id)}`)
   );
 
   server.tool(
@@ -249,7 +276,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       })).min(1).max(3000).describe('One entry per person to look up'),
     },
     { title: 'Find phones (bulk)', ...WRITE },
-    async (params) => {
+    async (params, extra) => {
       const bad = params.searches.findIndex((s) => !s.linkedin_url && !(s.first_name && s.last_name && (s.company_domain || s.company_name)));
       if (bad !== -1) {
         return { content: [{ type: 'text' as const, text: `Error: searches[${bad}] needs linkedin_url, or first_name + last_name + (company_domain or company_name).` }], isError: true };
@@ -264,7 +291,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
         if (s.company_name) out.company_name = s.company_name;
         return out;
       });
-      return request('POST', '/phone/bulk', { searches });
+      return request(extra, 'POST', '/phone/bulk', { searches });
     }
   );
 
@@ -275,7 +302,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
       id: z.string().uuid().describe('Batch ID returned from find_phones_bulk'),
     },
     { title: 'Get bulk phone results', ...READ },
-    async (params) => request('GET', `/phone/bulk?id=${encodeURIComponent(params.id)}`)
+    async (params, extra) => request(extra, 'GET', `/phone/bulk?id=${encodeURIComponent(params.id)}`)
   );
 
   // ── Account ──
@@ -285,7 +312,7 @@ export function createEnrowServer(getApiKey: () => string, getChannelSecret?: Ch
     'Get the remaining credit balance and the registered webhook URLs of the connected Enrow account. Use only when the user asks about their Enrow credits or webhooks.',
     {},
     { title: 'Get account info', ...READ },
-    async () => request('GET', '/account/info')
+    async (_params, extra) => request(extra, 'GET', '/account/info')
   );
 
   return server;

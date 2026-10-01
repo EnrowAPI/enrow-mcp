@@ -5,11 +5,14 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { RequestId } from '@modelcontextprotocol/sdk/types.js';
 import { createEnrowServer } from './server.js';
 
-// Test secret and test credential only.
+// Test secret and test credentials only: an API key, and a plugin token (the
+// prefix of the tokens of the Enrow OAuth server).
 const SECRET = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 const CREDENTIAL = 'test-credential-0001';
+const PLUGIN_TOKEN = 'enrow_mcp_test-credential-0001';
 const ID = '3f2b8c1e-5d4a-4c6b-9e7f-0a1b2c3d4e5f';
 const PROOF_GET = 'v1.1790000000.a713ab39de3d869ec2e7a768c0d522a9d3a3054fd67734f505336d78462a8c49';
 const PROOF_POST = 'v1.1790000000.f8dbeb2da2be17c5b8ade18d88aee08a87ff57332a066e70f040a980127e7699';
@@ -38,8 +41,12 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-async function connect(getChannelSecret?: () => Promise<string | undefined>, credential = CREDENTIAL) {
-  const server = createEnrowServer(() => credential, getChannelSecret);
+async function connect(
+  getChannelSecret?: () => Promise<string | undefined>,
+  credential = CREDENTIAL,
+  onCredentialRefused?: (message: string, requestId: RequestId) => void,
+) {
+  const server = createEnrowServer(() => credential, getChannelSecret, onCredentialRefused);
   const client = new Client({ name: 'test', version: '1.0.0' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(a), client.connect(b)]);
@@ -199,4 +206,68 @@ test('no tool result holds the credential, the secret or the proof', async () =>
       assert.ok(!textOf(result).includes(value));
     }
   }
+});
+
+// What the Enrow API answers from now on, as a JSON body or as raw text.
+function answer(status: number, body: unknown) {
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  mock.method(globalThis, 'fetch', async () => new Response(text, { status }));
+}
+
+const CREDENTIAL_REFUSED = { message: 'refused', reason: 'credential_refused' };
+
+test('a plugin token that the Enrow API refuses itself reaches the refusal hook, with the text of the tool error and the id of the request', async () => {
+  const refused = mock.fn((_message: string, _requestId: RequestId) => {});
+  const client = await connect(undefined, PLUGIN_TOKEN, refused);
+  answer(401, CREDENTIAL_REFUSED);
+  const result = await client.callTool({ name: 'get_account_info', arguments: {} });
+  assert.deepEqual(result, { content: [{ type: 'text', text: 'Error 401: refused' }], isError: true });
+  // The client sent its initialize request as id 0, then this call as id 1.
+  assert.deepEqual(refused.mock.calls.map((call) => call.arguments), [['Error 401: refused', 1]]);
+});
+
+test('the prefix is read from the credential as it goes on the wire, without surrounding whitespace', async () => {
+  const refused = mock.fn((_message: string, _requestId: RequestId) => {});
+  for (const credential of [` ${PLUGIN_TOKEN} `, `${PLUGIN_TOKEN}\t`, `\t${PLUGIN_TOKEN}\n`]) {
+    const client = await connect(undefined, credential, refused);
+    answer(401, CREDENTIAL_REFUSED);
+    await client.callTool({ name: 'get_account_info', arguments: {} });
+  }
+  assert.equal(refused.mock.callCount(), 3);
+});
+
+test('no other answer reaches the refusal hook', async () => {
+  const refused = mock.fn((_message: string, _requestId: RequestId) => {});
+  const plugin = await connect(undefined, PLUGIN_TOKEN, refused);
+  // The proof was refused, not the token: a new sign-in would not help.
+  answer(401, { message: 'refused', reason: 'channel_refused' });
+  await plugin.callTool({ name: 'get_account_info', arguments: {} });
+  // A 401 without that exact reason: as the Enrow API answered before it gave
+  // one, a body that is not JSON or not an object, another spelling.
+  for (const body of [{ message: 'refused' }, 'Unauthorized', '', '"credential_refused"', { reason: 'Credential_Refused' }]) {
+    answer(401, body);
+    await plugin.callTool({ name: 'get_account_info', arguments: {} });
+  }
+  for (const status of [200, 202, 400, 402, 403, 404, 429, 500, 503]) {
+    answer(status, CREDENTIAL_REFUSED);
+    await plugin.callTool({ name: 'get_account_info', arguments: {} });
+  }
+  // An API key never asks for a sign-in, whatever the reason.
+  const apiKey = await connect(undefined, CREDENTIAL, refused);
+  answer(401, CREDENTIAL_REFUSED);
+  await apiKey.callTool({ name: 'get_account_info', arguments: {} });
+  answer(401, { message: 'This account is not allowed to use the phone search feature' });
+  await apiKey.callTool({ name: 'find_phone', arguments: { linkedin_url: 'https://www.linkedin.com/in/ada' } });
+  mock.method(globalThis, 'fetch', async () => {
+    throw new Error('fetch failed');
+  });
+  await plugin.callTool({ name: 'get_account_info', arguments: {} });
+  assert.equal(refused.mock.callCount(), 0);
+});
+
+test('without a refusal hook, as over stdio, a refused plugin token stays a tool error', async () => {
+  const client = await connect(undefined, PLUGIN_TOKEN);
+  answer(401, CREDENTIAL_REFUSED);
+  const result = await client.callTool({ name: 'get_account_info', arguments: {} });
+  assert.deepEqual(result, { content: [{ type: 'text', text: 'Error 401: refused' }], isError: true });
 });
