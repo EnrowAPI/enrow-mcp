@@ -7,7 +7,9 @@
  *
  * Stateless + multi-tenant: the caller's Enrow API key is read per request from
  * `Authorization: Bearer <key>` (or the `x-enrow-api-key` header), and a fresh
- * MCP server + transport are created per request.
+ * MCP server + transport are created per request. The MCP path serves POST
+ * only: with no session there is no stream to open on a GET and nothing to end
+ * with a DELETE, so any other method gets a 405 once a credential is present.
  *
  * A plugin token that the Enrow API refuses itself during a tool call (token
  * invalid, revoked, evicted or expired) gets an HTTP 401 with an
@@ -19,7 +21,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getRequestListener } from '@hono/node-server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { isJSONRPCRequest, type RequestId } from '@modelcontextprotocol/sdk/types.js';
+import { isJSONRPCNotification, isJSONRPCRequest, type RequestId } from '@modelcontextprotocol/sdk/types.js';
 import type { ChannelSecretProvider } from './channel-proof.js';
 import { createEnrowServer } from './server.js';
 
@@ -79,6 +81,20 @@ function refusalOf(body: unknown, refusals: ReadonlyMap<RequestId, string>): str
   return ids.length > 0 && ids.every((id) => refusals.has(id)) ? refusals.get(ids[0]) : undefined;
 }
 
+// A batch can cancel one of its own requests. The SDK then sends no answer to
+// that request, while in JSON mode the transport waits for every answer of the
+// batch: the response would never come, and behind Lambda the invocation would
+// never settle. A receiver may ignore a cancellation, and a stateless server
+// can act on no other kind (a later POST reaches a fresh server), so these
+// notifications are dropped.
+function withoutSelfCancellations(body: unknown): unknown {
+  if (!Array.isArray(body)) return body;
+  const ids = new Set<unknown>(body.filter(isJSONRPCRequest).map((message) => message.id));
+  return body.filter(
+    (message) => !(isJSONRPCNotification(message) && message.method === 'notifications/cancelled' && ids.has(message.params?.requestId)),
+  );
+}
+
 export async function listener(
   req: IncomingMessage,
   res: ServerResponse,
@@ -133,19 +149,31 @@ export async function listener(
     return;
   }
 
-  // Pre-read and parse the JSON-RPC body for POST so the transport doesn't have
-  // to re-read the stream (the documented handleRequest(req, res, body) pattern).
+  // MCP Streamable HTTP lets a server that offers no stream answer 405 to a
+  // GET, and to a DELETE when it has no session to end; the SDK client takes
+  // the 405 on its GET as "no stream offered". Left to the SDK, the GET would
+  // get a text/event-stream that nothing ever writes to or ends: behind Lambda
+  // the invocation never settles, the runtime ends it as Runtime.NodeJsExit and
+  // the client gets a 502. Checked after the credential, so that a request
+  // without one still gets the 401 that starts OAuth discovery, whatever its
+  // method.
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    sendJson(res, 405, { jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' }, id: null });
+    return;
+  }
+
+  // Pre-read and parse the JSON-RPC body so the transport doesn't have to
+  // re-read the stream (the documented handleRequest(req, res, body) pattern).
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const rawBody = Buffer.concat(chunks).toString('utf8');
   let parsedBody: unknown;
-  if (req.method === 'POST') {
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(chunk as Buffer);
-    const rawBody = Buffer.concat(chunks).toString('utf8');
-    try {
-      parsedBody = rawBody ? JSON.parse(rawBody) : undefined;
-    } catch {
-      sendJson(res, 400, { jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' }, id: null });
-      return;
-    }
+  try {
+    parsedBody = rawBody ? JSON.parse(rawBody) : undefined;
+  } catch {
+    sendJson(res, 400, { jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' }, id: null });
+    return;
   }
 
   // Stateless: a fresh server + transport per request. A tool call whose
@@ -172,7 +200,7 @@ export async function listener(
   // mode it is ready once every tool call of the request has returned.
   const handle = getRequestListener(
     async (request) => {
-      const response = await transport.handleRequest(request, { parsedBody });
+      const response = await transport.handleRequest(request, { parsedBody: withoutSelfCancellations(parsedBody) });
       const refusal = refusalOf(parsedBody, refusals);
       return refusal === undefined ? response : credentialRefusedResponse(refusal);
     },
