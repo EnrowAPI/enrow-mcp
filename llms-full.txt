@@ -294,7 +294,7 @@ Verify multiple emails in batch. Up to 5,000 per batch.
 
 Find a phone number. Asynchronous. LinkedIn URL recommended.
 
-**Credit cost:** 50 credits per phone found
+**Credit cost:** 40 credits per phone found on current plans (each account is charged its own rate, returned in `credits.amount`)
 
 ## Parameters
 
@@ -373,7 +373,7 @@ Same structure but qualification: "ongoing"
 
 Search for multiple phone numbers. Up to 3,000 per batch.
 
-**Credit cost:** 50 credits per phone found (per item)
+**Credit cost:** 40 credits per phone found (per item) on current plans
 
 ### 201 Bulk search created
 ```json
@@ -453,7 +453,7 @@ Setup: pass webhook URL in settings.webhook per request, or configure globally a
 |----------|------|
 | Email Finder | 1 credit per email found |
 | Email Verifier | 0.25 credits per check |
-| Phone Finder | 50 credits per phone found |
+| Phone Finder | 40 credits per phone found (current plans) |
 
 POST responses for Email Verifier and Phone Finder include a `credits` object with: `amount`, `source` (sub or paygo), `split` ({fromPaygo, fromSub}).
 

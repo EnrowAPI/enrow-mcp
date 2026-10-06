@@ -18,7 +18,7 @@ MCP (Model Context Protocol) server for the [Enrow API](https://enrow.io). Find 
 | `get_verification_result` | Retrieve a verification result |
 | `verify_emails_bulk` | Verify up to 5,000 emails in one batch |
 | `get_verifications_bulk_result` | Retrieve bulk verification results |
-| `find_phone` | Find a phone number from LinkedIn or name + company |
+| `find_phone` | Find a mobile phone number from a LinkedIn profile URL |
 | `get_phone_result` | Retrieve a phone search result |
 | `find_phones_bulk` | Find up to 3,000 phone numbers in one batch |
 | `get_phones_bulk_result` | Retrieve bulk phone results |
@@ -26,43 +26,39 @@ MCP (Model Context Protocol) server for the [Enrow API](https://enrow.io). Find 
 
 ## Setup
 
-### 1. Get an API key
+### Hosted server (recommended)
 
-Register at [app.enrow.io](https://app.enrow.io) — 50 free credits, no credit card required.
+Enrow runs this server at `https://mcp.enrow.io/mcp` (Streamable HTTP). Add it to your assistant and sign in with your Enrow account (OAuth): there is no API key to copy, and it works on the free plan. Step-by-step guides for Claude, ChatGPT, Claude Code, Codex, Cursor, VS Code and other clients: [app.enrow.io/mcp](https://app.enrow.io/mcp).
 
-### 2. Install
+For example, in Claude Code:
 
 ```bash
-npm install -g @enrow/mcp
+claude mcp add --transport http --scope user enrow https://mcp.enrow.io/mcp
 ```
 
-### 3. Configure Claude Desktop
+On the free plan, the assistant runs single searches (emails, verifications, mobiles) with your credits, up to 300 searches every 30 days, 10 of them mobiles. The bulk tools need a paid plan.
 
-Add to your `claude_desktop_config.json`:
+### Run it locally (stdio)
+
+The package is not published on npm: build it from this repository (Node.js 18 or later).
+
+```bash
+git clone https://github.com/EnrowAPI/enrow-mcp.git
+cd enrow-mcp
+npm ci
+npm run build
+```
+
+The local server authenticates with an Enrow API key (`ENROW_API_KEY`), available on paid plans from the [API page](https://app.enrow.io/api).
+
+Add it to your `claude_desktop_config.json` (Claude Desktop) or to your Cursor MCP settings:
 
 ```json
 {
   "mcpServers": {
     "enrow": {
-      "command": "enrow-mcp",
-      "env": {
-        "ENROW_API_KEY": "your_api_key"
-      }
-    }
-  }
-}
-```
-
-### 4. Configure Cursor
-
-Add to your Cursor MCP settings:
-
-```json
-{
-  "mcpServers": {
-    "enrow": {
-      "command": "npx",
-      "args": ["-y", "@enrow/mcp"],
+      "command": "node",
+      "args": ["/absolute/path/to/enrow-mcp/dist/index.js"],
       "env": {
         "ENROW_API_KEY": "your_api_key"
       }
@@ -94,7 +90,7 @@ Once configured, just ask your AI assistant:
 - **50 free credits** to start — no credit card required
 - Email Finder: 1 credit/email found
 - Email Verifier: 0.25 credit/email search
-- Phone Finder: 50 credits/phone found
+- Phone Finder: 40 credits/phone found
 - From **$17/mo** to **$497/mo** — [see pricing](https://enrow.io/pricing)
 
 ## Links
