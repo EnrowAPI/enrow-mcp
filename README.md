@@ -87,11 +87,11 @@ Once configured, just ask your AI assistant:
 
 ## Pricing
 
-- **50 free credits** to start — no credit card required
+- **50 free credits** to start, no credit card required
 - Email Finder: 1 credit/email found
 - Email Verifier: 0.25 credit/email search
 - Phone Finder: 40 credits/phone found
-- From **$17/mo** to **$497/mo** — [see pricing](https://enrow.io/pricing)
+- Plans from **$17/mo** to **$1,397/mo**: [see pricing](https://enrow.io/pricing)
 
 ## Links
 
